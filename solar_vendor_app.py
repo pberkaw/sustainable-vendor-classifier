@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import requests
 import time
 import os
 from dotenv import load_dotenv
@@ -34,7 +33,6 @@ category_prompt = st.selectbox(
     ]
 )
 
-# --- MODEL CHOICE (optional) ---
 model_choice = st.selectbox("Choose OpenAI model", options=["gpt-4", "gpt-3.5-turbo"], index=0)
 
 # --- FILE UPLOAD ---
@@ -42,25 +40,36 @@ uploaded_file = st.file_uploader("📄 Upload your vendor CSV file", type=["csv"
 
 if uploaded_file:
     try:
-        # --- READ FILE ---
         df = pd.read_csv(uploaded_file, encoding="utf-8")
-        df.columns = df.columns.str.strip()  # Clean column names
+        df.columns = df.columns.str.strip()
 
-        # --- DISPLAY PREVIEW ---
-        st.markdown("### 🗂️ Preview of Uploaded Data")
-        st.dataframe(df.head())
-
-        # --- REQUIRED COLUMNS ---
         if not {"Name", "Description"}.issubset(df.columns):
             st.error("CSV must contain 'Name' and 'Description' columns.")
         else:
-            # --- CLASSIFICATION FUNCTION ---
-            def classify_snippet(snippet, company):
-                prompt = f"""
-Given the following business snippet, classify whether the company appears aligned with {category_prompt} services.
+            # --- SEARCH TERM INPUT (OR logic) ---
+            search_terms = st.text_input("🔎 Filter vendors by keyword(s)", placeholder="e.g. solar, dc, lighting")
 
-Company: {company}
-Snippet: {snippet}
+            def filter_by_keywords(df, search_terms):
+                if not search_terms:
+                    return df
+                terms = [term.strip().lower() for term in search_terms.split(",")]
+                return df[df.apply(lambda row: any(
+                    term in str(row["Description"]).lower() or term in str(row["Name"]).lower()
+                    for term in terms), axis=1)]
+
+            filtered_df = filter_by_keywords(df, search_terms)
+
+            st.markdown("### 🗂️ Filtered Vendor Preview")
+            st.dataframe(filtered_df.head())
+
+            # --- CACHED CLASSIFICATION FUNCTION ---
+            @st.cache_data(show_spinner=False)
+            def get_cached_classification(name, description, category, model_choice):
+                prompt = f"""
+Given the following business snippet, classify whether the company appears aligned with {category} services.
+
+Company: {name}
+Snippet: {description}
 
 Respond with one of:
 - ✅ Likely Aligned
@@ -78,28 +87,29 @@ Respond with one of:
                     return f"❌ Error: {e}"
 
             # --- APPLY CLASSIFICATION ---
-            st.markdown("### 🏗️ Classifying vendors…")
-            with st.spinner("Classifying… This may take a few minutes depending on the file size."):
+            if not filtered_df.empty:
+                st.markdown("### 🏗️ Classifying vendors…")
+                with st.spinner("Classifying… This may take a few minutes depending on the file size."):
+                    classifications = []
+                    for _, row in filtered_df.iterrows():
+                        name = str(row["Name"])
+                        description = str(row["Description"])
+                        result = get_cached_classification(name, description, category_prompt, model_choice)
+                        classifications.append(result)
+                        time.sleep(1.5)  # Prevent rate limits
 
-                classifications = []
-                for i, row in df.iterrows():
-                    name = str(row["Name"])
-                    description = str(row["Description"])
-                    result = classify_snippet(description, name)
-                    classifications.append(result)
-                    time.sleep(1.5)  # prevent rate limit
+                    filtered_df["Classification"] = classifications
 
-                df["Classification"] = classifications
+                # --- DISPLAY RESULTS ---
+                st.markdown("### ✅ Classification Results")
+                st.dataframe(filtered_df)
 
-            # --- DISPLAY RESULTS ---
-            st.markdown("### ✅ Results")
-            st.dataframe(df)
-
-            # --- DOWNLOAD LINK ---
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 Download Results CSV", data=csv, file_name="classified_vendors.csv", mime="text/csv")
+                # --- DOWNLOAD ---
+                csv = filtered_df.to_csv(index=False).encode("utf-8")
+                st.download_button("📥 Download Results CSV", data=csv, file_name="classified_vendors.csv", mime="text/csv")
+            else:
+                st.warning("⚠️ No vendors matched your search terms.")
 
     except Exception as e:
-        st.error(f"Error processing file: {e}")
-
+        st.error(f"❌ Error processing file: {e}")
 
