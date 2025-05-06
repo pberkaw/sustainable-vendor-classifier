@@ -12,8 +12,8 @@ st.title("🔍 Sustainability Vendor Classifier")
 
 # --- LOAD ENV VARIABLES ---
 load_dotenv(dotenv_path=Path(".env"))
-openai_api_key = os.getenv("OPENAI_API_KEY")
-serp_api_key = os.getenv("SERPAPI_KEY")
+openai_api_key = st.secrets("OPENAI_API_KEY")
+serp_api_key = st.secrets("SERPAPI_KEY")
 client = OpenAI(api_key=openai_api_key)
 
 # --- DEBUG DISPLAY ---
