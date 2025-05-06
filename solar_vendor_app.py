@@ -108,7 +108,8 @@ Respond with one of:
 
             model_choice = st.selectbox("Choose OpenAI model", options=["gpt-4", "gpt-3.5-turbo"], index=0)
 
-            if not filtered_df.empty and st.button("🚦 Begin Classifying Vendors"):
+            button_disabled = uploaded_file is None or filtered_df.empty
+            if st.button("🚦 Begin Classifying Vendors", disabled=button_disabled):
                 st.markdown("### 🏗️ Classifying vendors…")
                 with st.spinner("Classifying… This may take a few minutes depending on file size."):
                     classifications = []
@@ -152,4 +153,3 @@ Respond with one of:
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
-
