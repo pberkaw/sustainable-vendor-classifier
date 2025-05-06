@@ -1,19 +1,16 @@
 import streamlit as st
 import pandas as pd
 import time
-import os
-from dotenv import load_dotenv
-from pathlib import Path
+import requests
 from openai import OpenAI
 
 # --- STREAMLIT SETUP ---
 st.set_page_config(page_title="Sustainability Vendor Classifier", layout="wide")
 st.title("🔍 Sustainability Vendor Classifier")
 
-# --- LOAD ENV VARIABLES ---
-load_dotenv(dotenv_path=Path(".env"))
-openai_api_key = st.secrets["OPENAI_API_KEY"]
-serp_api_key = st.secrets["SERPAPI_KEY"]
+# --- LOAD SECRETS ---
+openai_api_key = st.secrets["OPENAI_API_KEY"].strip()
+serp_api_key = st.secrets["SERPAPI_KEY"].strip()
 client = OpenAI(api_key=openai_api_key)
 
 # --- DEBUG DISPLAY ---
@@ -42,8 +39,8 @@ if uploaded_file:
         df = pd.read_csv(uploaded_file, encoding="utf-8")
         df.columns = df.columns.str.strip()
 
-        if not {"Name", "Description"}.issubset(df.columns):
-            st.error("CSV must contain 'Name' and 'Description' columns.")
+        if not {"Company", "Location"}.issubset(df.columns):
+            st.error("CSV must contain 'Company' and 'Location' columns.")
         else:
             # --- SEARCH TERMS INPUT ---
             search_terms = st.text_input(
@@ -56,7 +53,7 @@ if uploaded_file:
                     return df
                 terms = [term.strip().lower() for term in search_terms.split(",")]
                 return df[df.apply(lambda row: any(
-                    term in str(row["Description"]).lower() or term in str(row["Name"]).lower()
+                    term in str(row["Location"]).lower() or term in str(row["Company"]).lower()
                     for term in terms), axis=1)]
 
             filtered_df = filter_by_keywords(df, search_terms)
@@ -74,14 +71,33 @@ if uploaded_file:
             else:
                 st.info("👆 Enter keywords above to filter vendors before classification.")
 
+            # --- SERPAPI LOOKUP FUNCTION ---
+            def get_serp_snippet(company, location, search_terms, serp_api_key):
+                query = f"{company} {location} {search_terms}"
+                params = {
+                    "engine": "google",
+                    "q": query,
+                    "api_key": serp_api_key,
+                    "num": 1
+                }
+                try:
+                    response = requests.get("https://serpapi.com/search", params=params)
+                    data = response.json()
+                    snippet = data.get("organic_results", [{}])[0].get("snippet", "No snippet found")
+                    return snippet
+                except Exception as e:
+                    return f"Error retrieving snippet: {e}"
+
             # --- CACHED CLASSIFICATION FUNCTION ---
             @st.cache_data(show_spinner=False)
-            def get_cached_classification(name, description, category, model_choice):
+            def get_cached_classification(company, snippet, category, model_choice):
                 prompt = f"""
-Given the following business snippet, classify whether the company appears aligned with {category} services.
+You are helping classify vendors for a project.
 
-Company: {name}
-Snippet: {description}
+Given the following company information, classify whether the company appears aligned with **{category}** services.
+
+Company: {company}
+Google Snippet: {snippet}
 
 Respond with one of:
 - ✅ Likely Aligned
@@ -107,9 +123,11 @@ Respond with one of:
                 with st.spinner("Classifying… This may take a few minutes depending on file size."):
                     classifications = []
                     for _, row in filtered_df.iterrows():
-                        name = str(row["Name"])
-                        description = str(row["Description"])
-                        result = get_cached_classification(name, description, category_prompt, model_choice)
+                        company = str(row["Company"])
+                        location = str(row["Location"])
+                        query_terms = search_terms if search_terms else ""
+                        snippet = get_serp_snippet(company, location, query_terms, serp_api_key)
+                        result = get_cached_classification(company, snippet, category_prompt, model_choice)
                         classifications.append(result)
                         time.sleep(1.5)  # avoid rate limits
 
@@ -125,4 +143,3 @@ Respond with one of:
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
-
