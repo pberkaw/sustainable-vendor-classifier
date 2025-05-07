@@ -135,11 +135,13 @@ Respond with one of:
                     st.session_state["classified"] = True
                     st.session_state["last_result"] = filtered_df.copy()
                     st.session_state["history"].append(filtered_df.copy())
+                    st.session_state["debug_logs"] = debug_logs
 
             if st.session_state["classified"]:
                 st.markdown("### ✅ Classification Results")
                 st.dataframe(st.session_state["last_result"])
 
+                debug_logs = st.session_state.get("debug_logs", [])
                 with st.expander("🪵 Show Debug Info Per Vendor"):
                     debug_df = pd.DataFrame(debug_logs)
                     st.dataframe(debug_df)
@@ -167,3 +169,4 @@ if st.session_state["history"]:
     for i, past_df in enumerate(reversed(st.session_state["history"][-3:])):
         with st.expander(f"🔁 Past Run #{len(st.session_state['history']) - i}"):
             st.dataframe(past_df)
+
