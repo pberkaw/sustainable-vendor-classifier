@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import time
@@ -14,10 +15,11 @@ openai_api_key = st.secrets["OPENAI_API_KEY"].strip()
 serp_api_key = st.secrets["SERPAPI_KEY"].strip()
 client = OpenAI(api_key=openai_api_key)
 
-# --- DEBUG DISPLAY ---
-st.markdown("### 🔧 DEBUG: API Keys")
-st.markdown(f"🧪 OpenAI Key loaded: {'✅ Yes' if openai_api_key else '❌ No'}")
-st.markdown(f"🔍 SerpAPI Key loaded: {'✅ Yes' if serp_api_key else '❌ No'}")
+# --- SESSION STATE INITIALIZATION ---
+if "classified" not in st.session_state:
+    st.session_state["classified"] = False
+if "history" not in st.session_state:
+    st.session_state["history"] = []
 
 # --- CATEGORY SELECTION ---
 category_prompt = st.selectbox(
@@ -25,7 +27,7 @@ category_prompt = st.selectbox(
     options=["solar", "green infrastructure", "HVAC", "lighting", "other"]
 )
 
-# --- SEARCH TERMS INPUT (visible before file upload) ---
+# --- SEARCH TERMS INPUT ---
 search_terms = st.text_input(
     "🔎 Enter keywords to filter vendors (OR logic)",
     placeholder="e.g. solar, DC, Maryland (leave blank to skip filtering)"
@@ -37,7 +39,7 @@ uploaded_file = st.file_uploader("📄 Upload your vendor CSV file", type=["csv"
 if uploaded_file:
     try:
         df = pd.read_csv(uploaded_file, encoding="utf-8")
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip().str.title()  # Normalize to Title Case
 
         if not {"Company", "Location"}.issubset(df.columns):
             st.error("CSV must contain 'Company' and 'Location' columns.")
@@ -52,7 +54,6 @@ if uploaded_file:
 
             filtered_df = filter_by_keywords(df, search_terms)
 
-            # --- DISPLAY FULL + FILTERED PREVIEWS ---
             st.markdown("### 🗂️ Full Vendor Dataset Preview")
             st.dataframe(df.head())
 
@@ -81,8 +82,7 @@ if uploaded_file:
                 except Exception as e:
                     return f"Error retrieving snippet: {e}"
 
-            @st.cache_data(show_spinner=False)
-            def get_cached_classification(company, snippet, category, model_choice):
+            def classify_vendor(company, snippet, category, model_choice):
                 prompt = f"""
 You are helping classify vendors for a project.
 
@@ -110,16 +110,15 @@ Respond with one of:
 
             button_disabled = uploaded_file is None or filtered_df.empty
             if st.button("🚦 Begin Classifying Vendors", disabled=button_disabled):
-                st.markdown("### 🏗️ Classifying vendors…")
+                classifications = []
+                debug_logs = []
                 with st.spinner("Classifying… This may take a few minutes depending on file size."):
-                    classifications = []
-                    debug_logs = []
                     for _, row in filtered_df.iterrows():
                         company = str(row["Company"])
                         location = str(row["Location"])
                         query_terms = search_terms if search_terms else ""
                         snippet = get_serp_snippet(company, location, query_terms, serp_api_key)
-                        result = get_cached_classification(company, snippet, category_prompt, model_choice)
+                        result = classify_vendor(company, snippet, category_prompt, model_choice)
                         classifications.append(result)
                         debug_logs.append({
                             "Company": company,
@@ -130,26 +129,42 @@ Respond with one of:
                         time.sleep(1.5)
 
                     filtered_df["Classification"] = classifications
+                    st.session_state["classified"] = True
+                    st.session_state["last_result"] = filtered_df.copy()
+                    st.session_state["history"].append(filtered_df.copy())
 
+            if st.session_state["classified"]:
                 st.markdown("### ✅ Classification Results")
-                st.dataframe(filtered_df)
+                st.dataframe(st.session_state["last_result"])
 
-                # --- DEBUG DISPLAY ---
                 with st.expander("🪵 Show Debug Info Per Vendor"):
                     debug_df = pd.DataFrame(debug_logs)
                     st.dataframe(debug_df)
 
-                # --- EXCEL DOWNLOAD BUTTON ---
                 excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-                    filtered_df.to_excel(writer, index=False, sheet_name="Vendors")
+                try:
+                    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                        st.session_state["last_result"].to_excel(writer, index=False, sheet_name="Vendors")
 
-                st.download_button(
-                    label="📥 Download Results Excel",
-                    data=excel_buffer.getvalue(),
-                    file_name="classified_vendors.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    st.download_button(
+                        label="📥 Download Results Excel",
+                        data=excel_buffer.getvalue(),
+                        file_name="classified_vendors.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except ImportError:
+                    st.error("❌ Please install openpyxl to enable Excel export.")
+
+    except Exception as e:
+        st.error(f"❌ Error processing file: {e}")
+
+# --- HISTORY TAB ---
+if st.session_state["history"]:
+    st.markdown("## 📚 Classification History (This Session)")
+    for i, past_df in enumerate(reversed(st.session_state["history"][-3:])):
+        with st.expander(f"🔁 Past Run #{len(st.session_state['history']) - i}"):
+            st.dataframe(past_df)
+
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
