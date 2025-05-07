@@ -142,18 +142,20 @@ Respond with one of:
                     st.dataframe(debug_df)
 
                 excel_buffer = io.BytesIO()
-                try:
-                    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-                        st.session_state["last_result"].to_excel(writer, index=False, sheet_name="Vendors")
+                
+try:
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        st.session_state["last_result"].to_excel(writer, index=False, sheet_name="Vendors")
 
-                    st.download_button(
-                        label="📥 Download Results Excel",
-                        data=excel_buffer.getvalue(),
-                        file_name="classified_vendors.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                except ImportError:
-                    st.error("❌ Please install openpyxl to enable Excel export.")
+    st.download_button(
+        label="📥 Download Results Excel",
+        data=excel_buffer.getvalue(),
+        file_name="classified_vendors.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+except ImportError:
+    st.error("❌ Please install openpyxl to enable Excel export.")
+
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
