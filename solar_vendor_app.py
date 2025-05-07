@@ -39,7 +39,7 @@ uploaded_file = st.file_uploader("📄 Upload your vendor CSV file", type=["csv"
 if uploaded_file:
     try:
         df = pd.read_csv(uploaded_file, encoding="utf-8")
-        df.columns = df.columns.str.strip().str.title()  # Normalize to Title Case
+        df.columns = df.columns.str.strip().str.title()
 
         if not {"Company", "Location"}.issubset(df.columns):
             st.error("CSV must contain 'Company' and 'Location' columns.")
@@ -92,9 +92,9 @@ Company: {company}
 Google Snippet: {snippet}
 
 Respond with one of:
-- ✅ Likely Aligned
-- ❓ Possibly Related
-- ❌ Not Aligned
+- [Likely Aligned]
+- [Possibly Related]
+- [Not Aligned]
 """
                 try:
                     response = client.chat.completions.create(
@@ -104,7 +104,7 @@ Respond with one of:
                     )
                     return response.choices[0].message.content.strip()
                 except Exception as e:
-                    return f"❌ Error: {e}"
+                    return f"[Not Aligned] Error: {e}"
 
             model_choice = st.selectbox("Choose OpenAI model", options=["gpt-4", "gpt-3.5-turbo"], index=0)
 
@@ -112,8 +112,10 @@ Respond with one of:
             if st.button("🚦 Begin Classifying Vendors", disabled=button_disabled):
                 classifications = []
                 debug_logs = []
+                progress_bar = st.progress(0)
+
                 with st.spinner("Classifying… This may take a few minutes depending on file size."):
-                    for _, row in filtered_df.iterrows():
+                    for i, (_, row) in enumerate(filtered_df.iterrows()):
                         company = str(row["Company"])
                         location = str(row["Location"])
                         query_terms = search_terms if search_terms else ""
@@ -126,6 +128,7 @@ Respond with one of:
                             "Snippet": snippet,
                             "Classification": result
                         })
+                        progress_bar.progress((i + 1) / len(filtered_df))
                         time.sleep(1.5)
 
                     filtered_df["Classification"] = classifications
@@ -153,10 +156,10 @@ Respond with one of:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 except ImportError:
-                    st.error("❌ Please install openpyxl to enable Excel export.")
+                    st.error("Please install openpyxl to enable Excel export.")
 
     except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
+        st.error(f"Error processing file: {e}")
 
 # --- HISTORY TAB ---
 if st.session_state["history"]:
